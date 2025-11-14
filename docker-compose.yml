@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # -----------------------
+  # Gateway (GraphQL)
+  # -----------------------
+  gateway-service:
+    build:
+      context: .
+      dockerfile: ./gateway-service.dockerfile
+    container_name: gateway-service
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 20G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+    ports:
+      - "4000:4000"
+    networks:
+      - microservices-net
+
+  # -----------------------
+  # LOGGER SERVICE
+  # -----------------------
+  logger-service:
+    build:
+      context: .
+      dockerfile: ./logger-service.dockerfile
+    container_name: logger-service
+    ports:
+      - "50055:50055"
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 20G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+    networks:
+      - microservices-net
+
+  loki:
+    image: grafana/loki:2.8.2
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  grafana:
+    image: grafana/grafana-oss:9.5.3
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=secret
+    depends_on:
+      - loki
+
+
+  cassandra:
+    image: cassandra:3.11
+    environment:
+      - CASSANDRA_CLUSTER_NAME=BethelZkpStorage
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_AUTHENTICATOR=PasswordAuthenticator   # Use PasswordAuthenticator to enable password management
+    ports:
+      - "9042:9042"  # Exposes the default Cassandra port for CQL (Cassandra Query Language)
+    volumes:
+      - cassandra-data:/var/lib/cassandra  # Ensure data persists across restarts
+    networks:
+      - microservices-net
+
+
+networks:
+  microservices-net:
+    driver: bridge
+
+volumes:
+  cassandra-data:  

@@ -1,0 +1,22 @@
+{
+  "name": "gateway",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.883.0",
+    "@grpc/grpc-js": "^1.7.3",
+    "@grpc/proto-loader": "^0.7.5",
+    "apollo-server": "^3.11.1",
+    "cors": "^2.8.5",
+    "dotenv": "16.4.7",
+    "ethers": "^5.7.2",
+    "graphql": "^16.6.0",
+    "graphql-type-json": "^0.3.2",
+    "graphql-upload": "^16.0.2",
+    "opossum": "^8.4.0",
+    "pg": "^8.10.0"
+  }
+}

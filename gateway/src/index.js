@@ -4,7 +4,7 @@ import typeDefs from './schema/index.js';
 import resolvers from './resolvers/index.js';
 import { traceIdMiddleware } from './middleware/traceIdMiddleware.js';
 import graphqlUploadExpress from "graphql-upload/graphqlUploadExpress.mjs"
-import { VerifyShareLink } from './services/upload-service.js';
+
 
 const PORT = process.env.GATEWAY_PORT || 4000;
 
@@ -15,7 +15,7 @@ async function startGateway() {
   app.use(traceIdMiddleware);
 
   app.use(graphqlUploadExpress({
-    maxFileSize: Infinity, // Alternatively, use Number.MAX_SAFE_INTEGER if preferred
+    maxFileSize: Infinity,
     maxFiles: Infinity,
   }))
 

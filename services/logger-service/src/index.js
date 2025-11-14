@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('@grpc/grpc-js');
 
-import { logEvent, getLogs, logUserActivity, getUserActivityLogs } from './controllers/loggerController.js';
+import { getLogs, getUserActivityLogs, getUserActivityLogsByLevel } from './controllers/loggerController.js';
 
 // Setup __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -26,11 +26,9 @@ function main() {
   const server = new grpc.Server();
 
   server.addService(loggerProto.LoggerService.service, {
-    // This must match "rpc LogEvent" in logger.proto
-    LogEvent: logEvent,
     GetLogs: getLogs,
-    LogUserActivity: logUserActivity,
     GetUserActivityLogs: getUserActivityLogs,
+    GetUserActivityLogsByLevel: getUserActivityLogsByLevel
   });
 
   // 3. Bind & start the server

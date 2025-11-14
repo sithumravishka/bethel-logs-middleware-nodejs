@@ -2,7 +2,7 @@
   "name": "common-protos",
   "version": "1.0.0",
   "scripts": {
-    "gen": "grpc_tools_node_protoc --js_out=import_style=commonjs,binary:../common-protos --grpc_out=grpc_js:../common-protos --proto_path=./ ./user.proto ./upload.proto ./chunk.proto ./claim.proto ./logger.proto ./point.proto"
+    "gen": "grpc_tools_node_protoc --js_out=import_style=commonjs,binary:../common-protos --grpc_out=grpc_js:../common-protos --proto_path=./ ./logger.proto"
   },
   "devDependencies": {
     "@grpc/grpc-js": "^1.8.0",

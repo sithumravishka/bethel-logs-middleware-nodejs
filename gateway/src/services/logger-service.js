@@ -25,33 +25,6 @@ const loggerClient = new loggerGrpcObj.LoggerService(
 );
 
 /**
- * Sends a log event to the logger-service.
- * @param {Object} logData
- * @param {string} logData.did
- * @param {string} logData.traceId
- * @param {string} logData.serviceName
- * @param {string} logData.level - e.g. 'info', 'error', etc.
- * @param {string} logData.message
- * @param {string} [logData.startTime]
- * @param {string} [logData.endTime]
- * @returns {Promise<void>}
- */
-export function logEvent({ did, traceId, serviceName, level, message, startTime, endTime }) {
-  return new Promise((resolve, reject) => {
-    loggerClient.LogEvent(
-      { did, traceId, serviceName, level, message, startTime, endTime },
-      (err, response) => {
-        if (err) {
-          console.error('[Gateway] Failed to log event:', err.message);
-          return reject(err);
-        }
-        resolve(response);
-      }
-    );
-  });
-}
-
-/**
  * Retrieves logs from the logger-service with cursor-based pagination.
  * @param {Object} params
  * @param {string} [params.did]
@@ -74,56 +47,95 @@ export function getLogs({ did, pageSize, pagingState }) {
   });
 }
 
-/**
- * Sends a user activity log event to the logger-service.
- * @param {Object} logData
- * @param {string} logData.did
- * @param {string} logData.traceId
- * @param {string} logData.level - e.g. 'info', 'error', etc.
- * @param {string} logData.message
- * @param {number} logData.duration - Duration in milliseconds
- * @returns {Promise<void>}
- */
-export function logUserActivity({ did, traceId, level, message, duration }) {
-  return new Promise((resolve, reject) => {
-    loggerClient.LogUserActivity(
-      { did, traceId, level, message, duration },
-      (err, response) => {
-        if (err) {
-          console.error('[Gateway] Failed to log user activity:', err.message);
-          return reject(err);
-        }
-        resolve(response);
-      }
-    );
-  });
-}
+// src/clients/loggerClient.js (or wherever this lives)
 
-export function getUserActivityLogs({ did, pageSize, pageNumber }) {
+export function getUserActivityLogs({
+  did,
+  pageSize,
+  pageNumber,
+  level,
+  traceId,
+  fromLoggedAt,
+  toLoggedAt,
+  minDuration,
+  maxDuration,
+  message,
+  messageContains,
+}) {
   return new Promise((resolve, reject) => {
-    loggerClient.GetUserActivityLogs({ did, pageSize, pageNumber }, (err, response) => {
+    const requestPayload = {
+      did,
+      pageSize,
+      pageNumber,
+      level,
+      traceId,
+      fromLoggedAt,
+      toLoggedAt,
+      minDuration,
+      maxDuration,
+      message,
+      messageContains,
+    };
+
+    // Optional: strip out undefined so gRPC doesn't see them at all
+    Object.keys(requestPayload).forEach((key) => {
+      if (requestPayload[key] === undefined) {
+        delete requestPayload[key];
+      }
+    });
+
+    console.log("\n[Gateway] Calling LoggerService.GetUserActivityLogs with:");
+    console.log(JSON.stringify(requestPayload, null, 2));
+
+    loggerClient.GetUserActivityLogs(requestPayload, (err, response) => {
       if (err) {
-        console.error('[Gateway] Failed to get user activity logs:', err.message);
+        console.error('[Gateway] Failed to get user activity logs:', err.message || err);
         return reject(err);
       }
+
+      console.log("[Gateway] Received GetUserActivityLogs response summary:", {
+        pageNumber: response.pageNumber,
+        totalLogs: response.totalLogs,
+        logsReturned: response.logs ? response.logs.length : 0,
+      });
+
       resolve(response);
     });
   });
 }
 
+export function getUserActivityLogsByLevel({
+  level,
+  pageSize,
+  pageNumber,
+  fromLoggedAt,
+  toLoggedAt,
+}) {
+  return new Promise((resolve, reject) => {
+    const requestPayload = {
+      level,
+      pageSize,
+      pageNumber,
+      fromLoggedAt,
+      toLoggedAt,
+    };
 
+    console.log("\n[Gateway] Calling LoggerService.GetUserActivityLogsByLevel with:");
+    console.log(JSON.stringify(requestPayload, null, 2));
 
-export const logEventWithTrace = async (logData, traceId) => {
-    return await logEvent({
-      ...logData,
-      traceId,
+    loggerClient.GetUserActivityLogsByLevel(requestPayload, (err, response) => {
+      if (err) {
+        console.error('[Gateway] Failed to get user activity logs by level:', err.message || err);
+        return reject(err);
+      }
+
+      console.log("[Gateway] GetUserActivityLogsByLevel response summary:", {
+        pageNumber: response.pageNumber,
+        totalLogs: response.totalLogs,
+        logsReturned: response.logs ? response.logs.length : 0,
+      });
+
+      resolve(response);
     });
-  };
-
-export const logUserActivityWithTrace = async (logData, traceId) => {
-    return await logUserActivity({
-      ...logData,
-      traceId,
-    });
-  };
-
+  });
+}

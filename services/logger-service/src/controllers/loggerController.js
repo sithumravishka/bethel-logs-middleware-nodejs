@@ -1,73 +1,52 @@
 // logger-service/src/controllers/loggerController.js
 
 import grpc from '@grpc/grpc-js';
-import { saveLog, fetchLogs, saveUserActivity, fetchUserActivityLogs } from '../db/loggerRepository.js';
+import {
+  fetchLogs,
+  fetchUserActivityLogs,
+  fetchUserActivityLogsByLevel,
+} from '../db/loggerRepository.js';
 
-/**
- * gRPC method: LogEvent
- * Accepts a log entry and stores it in Cassandra.
- */
-export async function logEvent(call, callback) {
-  const {
-    did,
-    traceId,
-    serviceName,
-    level,
-    message,
-    startTime,
-    endTime
-  } = call.request;
-
-  if (!traceId || !level || !message) {
-    console.warn('[Logger-Service] Invalid log request data:', call.request);
-    return callback({
-      code: grpc.status.INVALID_ARGUMENT,
-      details: 'Missing required fields: traceId, level, message',
-    });
-  }
-
-  console.log(`[Logger-Service] Received LogEvent (traceId=${traceId}, level=${level})`);
-
-  try {
-    await saveLog({
-      did,
-      traceId,
-      serviceName,
-      level,
-      message,
-      startTime,
-      endTime,
-    });
-
-    callback(null, { acknowledged: true });
-  } catch (err) {
-    console.error('[Logger-Service] Error saving log:', err);
-    return callback({
-      code: grpc.status.INTERNAL,
-      details: 'Failed to save log to Cassandra',
-    });
-  }
-}
 
 /**
  * gRPC method: GetLogs
- * Retrieves logs based on filters and cursor-based pagination.
+ * Retrieves logs based on filters and cursor-based pagination,
+ * grouped by traceId (so each trace is treated like one "log block").
  */
 export async function getLogs(call, callback) {
   const {
     did,
     pageSize = 10,
-    pagingState
+    pagingState,
+    traceId,
+    serviceName,
+    level,
+    fromLoggedAt,
+    toLoggedAt,
   } = call.request;
 
-  console.log(`[Logger-Service] Received GetLogs request (did=${did}, pageSize=${pageSize})`);
+  console.log(
+    `[Logger-Service] Received GetLogs request (did=${did}, traceId=${traceId}, serviceName=${serviceName}, level=${level}, pageSize=${pageSize})`
+  );
 
   try {
-    const { traceGroups, nextPagingState } = await fetchLogs({ did, pageSize, pagingState });
+    const { traceGroups, nextPagingState } = await fetchLogs({
+      pageSize,
+      pagingState,
+      filters: {
+        did,
+        traceId,
+        serviceName,
+        level,
+        fromLoggedAt,
+        toLoggedAt,
+      },
+    });
 
+    // traceGroups already matches the protobuf TraceGroup structure
     callback(null, {
       traceGroups,
-      nextPagingState
+      nextPagingState,
     });
   } catch (err) {
     console.error('[Logger-Service] Error fetching logs:', err);
@@ -79,62 +58,164 @@ export async function getLogs(call, callback) {
 }
 
 /**
- * Handles a log request for user activity and computes the duration.
- * This function writes to a new table, "user_activity_records".
- */
-export async function logUserActivity(call, callback) {
-  const { did, traceId, level, message, duration } = call.request;
-
-  // Validate required fields
-  if (!traceId || !level || !message) {
-    console.warn('[UserActivity-Service] Invalid log request data:', call.request);
-    return callback({
-      code: grpc.status.INVALID_ARGUMENT,
-      details: 'Missing required fields: traceId, level, message',
-    });
-  }
-
-  try {
-    await saveUserActivity({
-      did,
-      traceId,
-      level,
-      message,
-      duration,
-    });
-
-    callback(null, { acknowledged: true });
-  } catch (err) {
-    console.error('[UserActivity-Service] Error saving user activity:', err);
-    return callback({
-      code: grpc.status.INTERNAL,
-      details: 'Failed to save user activity to Cassandra',
-    });
-  }
-}
-
-/**
- * gRPC method: GetLogs
+ * gRPC method: GetUserActivityLogs
  * Retrieves user activity logs based on filters and page number–based pagination.
+ *
+ * NOTE:
+ * - Pagination is based on TRACE GROUPS (traceId), not raw DB rows.
+ * - Each element in `logs` represents one trace group.
  */
 export async function getUserActivityLogs(call, callback) {
-  const { did, pageSize, pageNumber } = call.request;
-  console.log(`[UserActivity-Service] Received GetLogs request (did=${did}, pageSize=${pageSize}, pageNumber=${pageNumber})`);
-  
+  const {
+    did,
+    pageSize,
+    pageNumber,
+    level,
+    traceId,
+    fromLoggedAt,
+    toLoggedAt,
+    minDuration,
+    maxDuration,
+    message,
+    messageContains,
+  } = call.request;
+
+  console.log("\n======================");
+  console.log("[UserActivity-Service] Incoming GetUserActivityLogs Request");
+  console.log("======================");
+  console.log("Request Payload:");
+  console.log(JSON.stringify({
+    did,
+    pageSize,
+    pageNumber,
+    level,
+    traceId,
+    fromLoggedAt,
+    toLoggedAt,
+    minDuration,
+    maxDuration,
+    message,
+    messageContains
+  }, null, 2));
+  console.log("======================\n");
+
   try {
-    const { logs, pageNumber: currentPage, totalLogs } = await fetchUserActivityLogs({ did, pageSize, pageNumber });
-    
-    // Return the user activity logs and pagination details
+    const response = await fetchUserActivityLogs({
+      did,
+      pageSize,
+      pageNumber,
+      level,
+      traceId,
+      fromLoggedAt,
+      toLoggedAt,
+      minDuration,
+      maxDuration,
+      message,
+      messageContains,
+    });
+
+    const { logs, pageNumber: currentPage, totalLogs } = response;
+
+    console.log("\n----------------------");
+    console.log("[UserActivity-Service] fetchUserActivityLogs Response Summary");
+    console.log("----------------------");
+
+    console.log("Returned Pagination:");
+    console.log(JSON.stringify({
+      pageNumber: currentPage,
+      totalLogs,
+      pageSize
+    }, null, 2));
+
+    console.log(`Logs Returned: ${logs.length}`);
+
+    console.log("\nPreview First 3 Logs:");
+    console.log(JSON.stringify(
+      logs.slice(0, 3).map(l => ({
+        did: l.did,
+        traceId: l.traceId,
+        level: l.level,
+        message: l.message,
+        duration: l.duration,
+        loggedAt: l.loggedAt,
+        recordsCount: l.records ? l.records.length : undefined
+      })),
+      null,
+      2
+    ));
+
+    console.log("----------------------\n");
+
     callback(null, {
       logs,
       pageNumber: currentPage,
-      totalLogs
+      totalLogs,
     });
+
   } catch (err) {
-    console.error('[UserActivity-Service] Error fetching logs:', err);
+    console.error("\n======================");
+    console.error("[UserActivity-Service] ERROR in GetUserActivityLogs");
+    console.error("======================");
+    console.error("Error message:", err.message);
+    console.error("Full error:", err);
+    console.error("======================\n");
+
     return callback({
       code: grpc.status.INTERNAL,
       details: 'Failed to fetch user activity logs from Cassandra',
     });
   }
 }
+
+export async function getUserActivityLogsByLevel(call, callback) {
+  const {
+    level,
+    pageSize,
+    pageNumber,
+    fromLoggedAt,
+    toLoggedAt,
+  } = call.request;
+
+  console.log("\n=====================");
+  console.log("[UserActivity-Service] Incoming GetUserActivityLogsByLevel Request");
+  console.log("=====================");
+  console.log("Request Payload:");
+  console.log(JSON.stringify({
+    level,
+    pageSize,
+    pageNumber,
+    fromLoggedAt,
+    toLoggedAt,
+  }, null, 2));
+  console.log("=====================\n");
+
+  try {
+    const { logs, pageNumber: currentPage, totalLogs } =
+      await fetchUserActivityLogsByLevel({
+        level,
+        pageSize,
+        pageNumber,
+        fromLoggedAt,
+        toLoggedAt,
+      });
+
+    console.log("[UserActivity-Service] GetUserActivityLogsByLevel Response Summary:", {
+      pageNumber: currentPage,
+      totalLogs,
+      logsReturned: logs.length,
+    });
+
+    callback(null, {
+      logs,
+      pageNumber: currentPage,
+      totalLogs,
+    });
+  } catch (err) {
+    console.error('[UserActivity-Service] Error fetching logs by level:', err);
+    return callback({
+      code: grpc.status.INTERNAL,
+      details: 'Failed to fetch user activity logs by level from Cassandra',
+    });
+  }
+}
+

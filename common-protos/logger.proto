@@ -4,40 +4,47 @@ package logger;
 
 // The Logger service definition.
 service LoggerService {
-  // Logs an event into the system.
-  rpc LogEvent (LogRequest) returns (LogResponse);
-
   // Retrieves logs with filtering and cursor-based pagination.
   rpc GetLogs (GetLogsRequest) returns (GetLogsResponse);
 
-  // Logs a user activity event into the system.
-  rpc LogUserActivity (UserActivityLogRequest) returns (LogResponse);
-
   // Retrieves user activity logs with filtering and page number-based pagination.
   rpc GetUserActivityLogs (GetUserActivityRequest) returns (GetUserActivityResponse);
+
+  rpc GetUserActivityLogsByLevel (GetUserActivityByLevelRequest) returns (GetUserActivityResponse);
+}
+
+message GetUserActivityByLevelRequest {
+  string level = 1;         // required: filter by level only
+  int32 pageSize = 2;       // number of trace groups per page
+  int32 pageNumber = 3;     // starting at 1
+  string fromLoggedAt = 4;  // optional ISO string
+  string toLoggedAt = 5;    // optional ISO string
 }
 
 // The request message containing the log details.
 message LogRequest {
-  string did = 1;          // User identity
-  string traceId = 2;      // Unique trace identifier
-  string serviceName = 3;  // Name of the service generating the log
-  string level = 4;        // Log level (info, error, etc.)
-  string message = 5;      // Log message
-  string startTime = 6;    // Start time of the event (ISO string)
-  string endTime = 7;      // End time of the event (ISO string)
+  string did = 1;
+  string traceId = 2;
+  string serviceName = 3;
+  string level = 4;
+  string message = 5;
+  string startTime = 6;
+  string endTime = 7;
 }
 
-// The response message indicating if the log was successfully recorded.
-message LogResponse {
-  bool acknowledged = 1;
-}
 
-// The request message for GetLogs.
+// Request for GetLogs.
 message GetLogsRequest {
-  string did = 1;          // Optional: Filter logs by user identity
-  int32 pageSize = 2;      // Number of logs per page
-  string pagingState = 3;  // Optional: Cursor for pagination
+  string did = 1;           // Optional filter
+  int32 pageSize = 2;       // Number of trace groups per page
+  string pagingState = 3;   // Cassandra cursor
+
+  // Additional filters
+  string traceId = 4;
+  string serviceName = 5;
+  string level = 6;
+  string fromLoggedAt = 7;  // ISO string
+  string toLoggedAt = 8;    // ISO string
 }
 
 // Represents a single log entry.
@@ -49,50 +56,77 @@ message LogRecord {
   string message = 5;
   string startTime = 6;
   string endTime = 7;
-  string loggedAt = 8;     // Timestamp when the log was recorded
+  string loggedAt = 8;
 }
 
-// Represents a group of logs sharing the same traceId.
+// Grouped logs per traceId.
 message TraceGroup {
   string traceId = 1;
   repeated LogRecord logs = 2;
+
+  // Optional metadata
+  string did = 3;
+  string serviceName = 4;
+  string firstLoggedAt = 5;
+  string lastLoggedAt = 6;
 }
 
-// The response message for GetLogs.
+// Response for GetLogs.
 message GetLogsResponse {
-  repeated TraceGroup traceGroups = 1; // Grouped logs by traceId
-  string nextPagingState = 2;          // Cursor for the next page
+  repeated TraceGroup traceGroups = 1;
+  string nextPagingState = 2;
 }
 
-// The request message containing the user activity log details.
-message UserActivityLogRequest {
-  string did = 1;         // User identity
-  string traceId = 2;     // Unique trace identifier
-  string level = 3;       // Log level (info, error, etc.)
-  string message = 4;     // Log message
-  int64 duration = 5;     // Duration in milliseconds
-}
 
-// The request message for GetUserActivityLogs.
+// ==========================
+// USER ACTIVITY LOGGING API
+// ==========================
+
+// Request for GetUserActivityLogs.
 message GetUserActivityRequest {
-  string did = 1;          // Optional: Filter logs by user identity
-  int32 pageSize = 2;      // Number of logs per page
-  int32 pageNumber = 3;    // Page number (starting at 1)
+  string did = 1;
+  int32 pageSize = 2;
+  int32 pageNumber = 3;
+
+  // Filters
+  string level = 4;
+  string traceId = 5;
+  string fromLoggedAt = 6;
+  string toLoggedAt = 7;
+
+  // NEW EXTRA FILTERS
+  int64 minDuration = 8;        // duration >= this
+  int64 maxDuration = 9;        // duration <= this
+  string message = 10;          // exact match
+  string messageContains = 11;  // substring (in-memory filtered)
 }
 
-// Represents a single user activity log entry.
+// One raw user activity log (DB row)
+message UserActivityLogRecord {
+  string did = 1;
+  string traceId = 2;
+  string level = 3;
+  string message = 4;
+  int64 duration = 5;
+  string loggedAt = 6;
+}
+
+// One logical log = one trace group
 message UserActivityLog {
   string did = 1;
   string traceId = 2;
   string level = 3;
   string message = 4;
-  int64 duration = 5;      // Duration in milliseconds
-  string loggedAt = 6;     // Timestamp when the log was recorded
+  int64 duration = 5;
+  string loggedAt = 6;
+
+  // All underlying rows in this trace group
+  repeated UserActivityLogRecord records = 7;
 }
 
-// The response message for GetUserActivityLogs.
+// Response for GetUserActivityLogs.
 message GetUserActivityResponse {
-  repeated UserActivityLog logs = 1; // List of user activity logs
-  int32 pageNumber = 2;              // Current page number
-  int32 totalLogs = 3;               // Total number of logs available
+  repeated UserActivityLog logs = 1; // Each = 1 trace group
+  int32 pageNumber = 2;              // Current page
+  int32 totalLogs = 3;               // Total trace groups
 }
